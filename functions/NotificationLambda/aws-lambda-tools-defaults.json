@@ -1,0 +1,22 @@
+{
+  "Information": [
+    "This file provides default values for the deployment wizard inside Visual Studio and the AWS Lambda commands."
+  ],
+  "profile": "default",
+  "region": "us-east-1",
+  "configuration": "Release",
+  "s3-prefix": "notifications-lambda/",
+  "template": "serverless.template",
+  "template-parameters": "",
+  "s3-bucket": "",
+  "stack-name": "NotificationLambda",
+  "cloudformation-role-arn": "",
+  "image-type": "Zip",
+  "image-tag": "latest",
+  "function-architecture": "x86_64",
+  "function-runtime": "dotnet10",
+  "function-handler": "Fiap.CloudGames.NotificationLambda::Fiap.CloudGames.NotificationLambda.Function::FunctionHandler",
+  "function-memory-size": 256,
+  "function-timeout": 30,
+  "enabled-xray-tracing": false
+}

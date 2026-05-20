@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications-deployment
+  namespace: fcg-apps
+  labels:
+    app: notifications-api
+    part-of: fiap-cloud-games
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: notifications-api
+  template:
+    metadata:
+      labels:
+        app: notifications-api
+        part-of: fiap-cloud-games
+    spec:
+      serviceAccountName: notifications-sa
+      containers:
+        - name: notifications-api
+          image: cloud-games-notifications-svc:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: notifications-config
+            - secretRef:
+                name: notifications-secret
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "384Mi"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
