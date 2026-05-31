@@ -33,6 +33,7 @@ Log.Logger = new LoggerConfiguration()
 builder.Host.UseSerilog();
 
 // Configure infrastructure based on messaging provider
+// Demo note: keeping provider selection explicit helps show RabbitMQ locally and SQS readiness on AWS.
 var messagingProvider = builder.Configuration["MESSAGING_PROVIDER"] ?? "RabbitMQ";
 Log.Information("Using messaging provider: {MessagingProvider}", messagingProvider);
 
