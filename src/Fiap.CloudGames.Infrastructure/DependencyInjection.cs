@@ -75,7 +75,7 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// Register infrastructure for SQS-based notification processing (AWS ECS deployment).
+    /// Register infrastructure for SQS-based notification processing.
     /// Uses AWS SQS polling instead of MassTransit/RabbitMQ.
     /// </summary>
     public static void AddInfrastructureSqs(

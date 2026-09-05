@@ -9,7 +9,7 @@ namespace Fiap.CloudGames.Infrastructure.Messaging;
 
 /// <summary>
 /// Background service that polls AWS SQS queue and dispatches notification events.
-/// Minimal event handler mapping for ECS deployment - bypasses MassTransit.
+/// Event handler mapping for the SQS transport, bypassing MassTransit.
 /// </summary>
 public class SqsNotificationPollingService : BackgroundService
 {
@@ -45,7 +45,7 @@ public class SqsNotificationPollingService : BackgroundService
                     QueueUrl = _queueUrl,
                     MaxNumberOfMessages = MaxNumberOfMessages,
                     WaitTimeSeconds = WaitTimeSeconds,
-                    AttributeNames = new List<string> { "All" },
+                    MessageSystemAttributeNames = new List<string> { "All" },
                     MessageAttributeNames = new List<string> { "All" }
                 };
 
