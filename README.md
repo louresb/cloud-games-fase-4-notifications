@@ -1,200 +1,143 @@
 # FIAP Cloud Games - Notifications (Fase 4)
 
-Microsserviço de notificações orientado a eventos, implementado como processador serverless em AWS Lambda.
+MicrosserviÃ§o responsÃ¡vel por consumir eventos dos domÃ­nios de usuÃ¡rios e pagamentos e gerar notificaÃ§Ãµes. O envio de e-mail Ã© representado por uma implementaÃ§Ã£o em console, permitindo validar o fluxo sem depender de um provedor externo.
 
-Este serviço não expõe API pública. Ele reage a eventos publicados por outros domínios do ecossistema FIAP Cloud Games, consome mensagens via Amazon SQS, processa o evento e despacha notificações para canais como e-mail e SMS.
+## Arquitetura
 
-## Arquitetura AWS (Fase 4)
+O runtime principal Ã© um Worker em .NET 10, empacotado em Docker e preparado para execuÃ§Ã£o no Amazon EKS. A mensageria pode ser configurada de duas formas:
 
-A arquitetura deste repositório é focada em execução sob demanda e desacoplamento por mensageria.
+- RabbitMQ com MassTransit, usado na execuÃ§Ã£o local e no fluxo principal em Kubernetes.
+- Amazon SQS, consumido pelo prÃ³prio Worker quando `MESSAGING_PROVIDER=SQS`.
 
-- Runtime principal: AWS Lambda
-- Fonte de eventos: Amazon SQS
-- Observabilidade: Amazon CloudWatch
-- Provisionamento de infraestrutura: Terraform
-- Empacotamento e publicação: fluxo AWS para artefatos de execução serverless
-
-Esse desenho reforça um modelo event-driven serverless:
-
-- Sem servidor dedicado em execução contínua
-- Sem endpoint HTTP de negócio
-- Escalabilidade automática por volume de mensagens
-- Processamento assíncrono com baixo acoplamento entre produtores e consumidor
-
-## Diagrama de Arquitetura
+O repositÃ³rio tambÃ©m contÃ©m um handler AWS Lambda opcional para consumir diretamente eventos do SQS. Tanto o Worker quanto a Lambda fazem parte da solution e sÃ£o validados pelo pipeline de CI.
 
 ```mermaid
-flowchart TB
-    subgraph Producers[Event Producers]
-        P[Payments Domain]
-        C[Catalog Domain]
-    end
-
-    subgraph Messaging[Messaging Layer]
-        Q[(Amazon SQS Queue)]
-    end
-
-    subgraph Processing[Serverless Processing]
-        L[AWS Lambda Function\nNotifications Processor\nStateless]
-    end
-
-    subgraph Channels[Notification Channels]
-        E[Email Channel]
-        S[SMS Channel]
-    end
-
-    O[(Amazon CloudWatch)]
-
-    P -->|Publish Event| Q
-    C -->|Publish Event| Q
-    Q -->|Trigger| L
-    L -->|Dispatch Notification| E
-    L -->|Dispatch Notification| S
-    L -->|Execution Logs and Metrics| O
-```
-
-## Fluxo de Processamento de Eventos
-
-```mermaid
-sequenceDiagram
-    participant Payments as Payments Producer
-    participant Catalog as Catalog Producer
-    participant SQS as Amazon SQS
-    participant Lambda as Notifications Lambda
-    participant Channel as Notification Channel
-    participant CW as CloudWatch
-
-    Payments->>SQS: Publish event
-    Catalog->>SQS: Publish event
-    SQS->>Lambda: Trigger
-    Lambda->>Lambda: Consume Message
-    Lambda->>Lambda: Process Event
-    Lambda->>Channel: Dispatch Notification
-    Lambda->>CW: Log execution
+flowchart LR
+    Users[Users Service] --> Broker[RabbitMQ ou Amazon SQS]
+    Payments[Payments Service] --> Broker
+    Broker --> Worker[Notifications Worker]
+    Broker --> Lambda[AWS Lambda opcional]
+    Worker --> Email[Console Email Service]
+    Lambda --> Email
+    Worker --> Logs[Serilog / Loki]
+    Lambda --> CloudWatch[CloudWatch Logs]
 ```
 
 ## Responsabilidades
 
-- Consumir eventos assíncronos a partir da fila SQS de notificações
-- Normalizar e desserializar payloads de eventos
-- Resolver o tipo de evento e executar o handler correspondente
-- Despachar notificações para os canais suportados
-- Registrar logs, falhas e contexto de processamento no CloudWatch
-- Aplicar estratégia de falha por mensagem para permitir nova tentativa conforme política da fila
+- Consumir eventos assÃ­ncronos de usuÃ¡rios e pagamentos.
+- Desserializar e encaminhar cada evento ao handler correspondente.
+- Gerar o conteÃºdo da notificaÃ§Ã£o.
+- Registrar o processamento com correlaÃ§Ã£o e contexto do tenant.
+- Permitir processamento por RabbitMQ ou SQS sem alterar os contratos de domÃ­nio.
 
-## Pipeline de Processamento
+Eventos tratados incluem:
 
-Pipeline interno da função Lambda em cada invocação:
+- `UserSignedUpEvent`
+- `UserEmailConfirmedEvent`
+- `UserInvitedEvent`
+- `UserForgotPasswordEvent`
+- `UserPasswordResetedEvent`
+- `PaymentLinkGeneratedEvent`
+- `PaymentSucceededEvent`
+- `PaymentRefundedEvent`
+- `PaymentFailedEvent`
 
-1. Trigger por lote de mensagens recebido da fila SQS.
-2. Leitura das mensagens e parsing do envelope do evento.
-3. Validação de estrutura mínima: tipo do evento e payload.
-4. Roteamento para o dispatcher de eventos.
-5. Execução do handler específico de domínio.
-6. Dispatch Notification para o canal apropriado.
-7. Emissão de logs técnicos e de negócio no CloudWatch.
-8. Em caso de erro, marcação de falha para reprocessamento segundo política da fila.
+## ExecuÃ§Ã£o local
 
-Características operacionais do runtime:
-
-- Stateless por invocação
-- Event-driven por design
-- Sem API pública
-- Escala horizontal automática por volume de mensagens
-
-## Execução Local
-
-Execução local é aplicável para validação de código e testes de processamento com eventos simulados.
-
-Pré-requisitos:
+### PrÃ©-requisitos
 
 - .NET 10 SDK
-- AWS Toolkit para Lambda CLI, quando aplicável
-- Credenciais AWS válidas para recursos utilizados em integração
+- RabbitMQ
+- Loki, opcional para centralizaÃ§Ã£o dos logs
 
-Comandos úteis:
+A infraestrutura local pode ser iniciada pelo [repositÃ³rio de orquestraÃ§Ã£o](https://github.com/louresb/cloud-games-fase-4-orchestration-aws):
+
+```bash
+docker compose -f docker-compose.fase4.yaml up -d
+```
+
+No repositÃ³rio do Notifications:
 
 ```bash
 dotnet restore
-dotnet build cloud-games-fase-4-notifications.sln
+dotnet run --project src/Fiap.CloudGames.Worker
 ```
 
-Para testes locais da função, utilize eventos SQS simulados e execute a Lambda com ferramentas de desenvolvimento AWS compatíveis com o projeto.
+Health checks:
 
-## Deploy AWS
+- `GET /health/live`
+- `GET /health/ready`
 
-Fluxo recomendado de deploy:
+## Processamento com Amazon SQS
 
-1. Build do projeto da função em modo Release.
-2. Empacotamento do artefato da Lambda.
-3. Provisionamento ou atualização de infraestrutura via Terraform.
-4. Publicação da função e associação da fila SQS como trigger.
-5. Validação pós-deploy em CloudWatch Logs.
+Para executar o Worker no modo SQS:
 
-Diretrizes de implantação:
+```text
+MESSAGING_PROVIDER=SQS
+MAIN_SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/notifications
+AWS_REGION=us-east-1
+```
 
-- Garantir permissões IAM para consumo da fila e escrita de logs
-- Configurar timeout e memória conforme perfil de carga
-- Validar políticas de retry e dead-letter queue no ambiente
+Em ambiente AWS, as credenciais devem ser fornecidas por IAM Role. Credenciais explÃ­citas sÃ£o necessÃ¡rias apenas em ambientes locais que nÃ£o possuam uma role associada.
 
-## Estrutura de Pastas
+O handler alternativo em `functions/NotificationLambda` recebe eventos `SQSEvent` e usa os mesmos contratos e serviÃ§os de aplicaÃ§Ã£o:
+
+```bash
+dotnet build functions/NotificationLambda/NotificationLambda.csproj
+```
+
+## Deploy
+
+O workflow `.github/workflows/deploy.yml` realiza build, testes, criaÃ§Ã£o da imagem Docker e publicaÃ§Ã£o no Amazon ECR. O deploy no Amazon EKS Ã© opcional e controlado pela variÃ¡vel `ENABLE_EKS_DEPLOY`.
+
+A infraestrutura compartilhada e os manifests de execuÃ§Ã£o estÃ£o documentados no [repositÃ³rio de orquestraÃ§Ã£o](https://github.com/louresb/cloud-games-fase-4-orchestration-aws).
+
+## Estrutura de pastas
 
 ```text
 .
-+-- functions/
-¦   +-- NotificationLambda/
-¦       +-- Function.cs
-¦       +-- aws-lambda-tools-defaults.json
-¦       +-- Handlers/
-¦       +-- Messages/
-¦       +-- Services/
-+-- src/
-¦   +-- Fiap.CloudGames.Application/
-¦   +-- Fiap.CloudGames.Domain/
-¦   +-- Fiap.CloudGames.Infrastructure/
-¦   +-- Fiap.CloudGames.Worker/
-+-- tests/
-¦   +-- Fiap.CloudGames.Tests/
-+-- cloud-games-fase-4-notifications.sln
-+-- Dockerfile
-+-- README.md
+|-- functions/
+|   `-- NotificationLambda/
+|-- src/
+|   |-- Fiap.CloudGames.Application/
+|   |-- Fiap.CloudGames.Domain/
+|   |-- Fiap.CloudGames.Infrastructure/
+|   `-- Fiap.CloudGames.Worker/
+|-- tests/
+|   `-- Fiap.CloudGames.Tests/
+|-- k8s/
+|-- Dockerfile
+`-- cloud-games-fase-4-notifications.sln
 ```
 
 ## Tecnologias
 
 - .NET 10
-- AWS Lambda
-- Amazon SQS
-- Amazon CloudWatch
-- AWS SDK for .NET
-- Serilog
-- Terraform
+- RabbitMQ e MassTransit
+- Amazon SQS e AWS Lambda
+- Docker e Kubernetes
+- Amazon ECR e EKS
+- Serilog e Grafana Loki
 
-## Variáveis de Ambiente
+## VariÃ¡veis de ambiente
 
-Variáveis recomendadas para execução e deploy:
+| VariÃ¡vel | Uso |
+|---|---|
+| `MESSAGING_PROVIDER` | `RabbitMQ` por padrÃ£o ou `SQS` |
+| `RabbitMq__HostName` | Host do RabbitMQ |
+| `RabbitMq__UserName` | UsuÃ¡rio do RabbitMQ |
+| `RabbitMq__Password` | Senha do RabbitMQ |
+| `Queues__Notifications__Commands` | Fila de comandos |
+| `Queues__Notifications__Events` | Fila de eventos |
+| `MAIN_SQS_QUEUE_URL` | URL da fila quando o modo SQS estÃ¡ ativo |
+| `AWS_REGION` | RegiÃ£o usada pelo SDK da AWS |
+| `Loki__Url` | Endpoint do Grafana Loki |
 
-| Variável | Obrigatória | Descrição |
-|---|---|---|
-| MAIN_SQS_QUEUE_URL | Sim | URL da fila SQS consumida pela função |
-| AWS_REGION | Sim | Região AWS de execução dos recursos |
-| AWS_ACCESS_KEY_ID | Condicional | Credencial para execução fora de ambiente com role anexada |
-| AWS_SECRET_ACCESS_KEY | Condicional | Segredo da credencial associada |
-| AWS_SESSION_TOKEN | Condicional | Token temporário quando uso de credencial de sessão |
-| ASPNETCORE_ENVIRONMENT | Não | Ambiente de execução da aplicação |
+## RepositÃ³rios relacionados
 
-Observações:
-
-- Em ambiente AWS com role da função, prefira credenciais gerenciadas em vez de variáveis estáticas.
-- Defina políticas de acesso mínimo necessário para SQS e CloudWatch.
-
-## Repositórios Relacionados
-
-- Orquestração e infraestrutura da Fase 4
-  - https://github.com/FIAP-10NETT-Grupo-30/cloud-games-fase-4-orchestration-aws
-- Serviço de usuários
-  - https://github.com/FIAP-10NETT-Grupo-30/cloud-games-fase-4-users
-- Serviço de catálogo
-  - https://github.com/FIAP-10NETT-Grupo-30/cloud-games-fase-4-catalog
-- Serviço de pagamentos
-  - https://github.com/FIAP-10NETT-Grupo-30/cloud-games-fase-4-payments
+- [OrquestraÃ§Ã£o](https://github.com/louresb/cloud-games-fase-4-orchestration-aws)
+- [Users](https://github.com/louresb/cloud-games-fase-4-users)
+- [Catalog](https://github.com/louresb/cloud-games-fase-4-catalog)
+- [Payments](https://github.com/louresb/cloud-games-fase-4-payments)
+- [Audit](https://github.com/louresb/cloud-games-fase-4-audit)

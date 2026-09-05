@@ -32,19 +32,18 @@ Log.Logger = new LoggerConfiguration()
 // Substitui o logger padrão do .NET pelo Serilog
 builder.Host.UseSerilog();
 
-// Configure infrastructure based on messaging provider
-// Demo note: keeping provider selection explicit helps show RabbitMQ locally and SQS readiness on AWS.
+// Configure infrastructure based on the selected messaging provider.
 var messagingProvider = builder.Configuration["MESSAGING_PROVIDER"] ?? "RabbitMQ";
 Log.Information("Using messaging provider: {MessagingProvider}", messagingProvider);
 
 if (messagingProvider.Equals("SQS", StringComparison.OrdinalIgnoreCase))
 {
-    // SQS mode for AWS ECS deployment
+    // SQS mode for AWS deployments
     builder.Services.AddInfrastructureSqs(builder.Configuration);
 }
 else
 {
-    // RabbitMQ mode for local/dev
+    // RabbitMQ mode for local and Kubernetes environments
     builder.Services.AddInfrastructure(
         builder.Configuration, 
         typeof(UserSignedUpConsumer).Assembly,
